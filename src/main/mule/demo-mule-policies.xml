@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:db="http://www.mulesoft.org/schema/mule/db"
+	xmlns:api-gateway="http://www.mulesoft.org/schema/mule/api-gateway"
+	xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/api-gateway http://www.mulesoft.org/schema/mule/api-gateway/current/mule-api-gateway.xsd
+http://www.mulesoft.org/schema/mule/db http://www.mulesoft.org/schema/mule/db/current/mule-db.xsd
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="37d1c524-7bf0-4259-b308-442cf414c44a" basePath="/api/v1" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<api-gateway:autodiscovery apiId="19311544" ignoreBasePath="true" doc:name="circuit-breaker" doc:id="b06168bb-26fc-4b0a-8d05-e475fd3af254" flowRef="demo-mule-policies-circuit-breaker-http" />
+	<db:config name="Database_Config" doc:name="Database Config" doc:id="0b9d61ab-07b7-49b6-b239-7e76544fd14d" >
+		<db:my-sql-connection host="${db.host}" port="${db.port}" user="${db.user}" password="${db.password}" database="${db.database}" />
+	</db:config>
+	<api-gateway:autodiscovery apiId="19311541" ignoreBasePath="true" doc:name="caching" doc:id="4d871f57-5c37-42aa-807f-893992991c72" flowRef="demo-mule-policies-db-http" />
+	<api-gateway:autodiscovery apiId="19311533" ignoreBasePath="true" doc:name="throttling" doc:id="e64c9d95-07be-4225-8822-2d31ecf4933d" flowRef="demo-mule-policies-throttling-http" />
+	<configuration-properties doc:name="Configuration properties" doc:id="883e66bc-88c4-4b17-979a-dbae12678a4a" file="env-${env}.yaml" />
+	<global-property doc:name="Global Property" doc:id="ac216a11-f519-4288-b426-783f1f756538" name="env" value="local" />
+	<sub-flow name="demo-mule-policies-request-flight-service" doc:id="be7f732d-74ce-47d1-8db1-3ef921705373" >
+		<http:request method="GET" doc:name="Request" doc:id="baf33f55-9b6b-4ad5-a2af-536f56ae3267" url="${flight-service.url}">
+			<http:headers><![CDATA[#[output application/java
+---
+{
+	"client_id" : p("flight-service.clientId"),
+	"client_secret" : p("flight-service.clientSecret")
+}]]]></http:headers>
+		</http:request>
+	</sub-flow>
+	<sub-flow name="demo-mule-policies-db" doc:id="8e64e2be-45d2-4b62-b09c-f972bf529bd2" >
+		<db:select doc:name="Select" doc:id="bc0f6acc-6c04-457e-b065-78ba218f2565" config-ref="Database_Config">
+			<db:sql ><![CDATA[SELECT accountID, name, street, city, state, postal, country, accountType, creationDate, miles
+FROM training.flights_customers;
+]]></db:sql>
+		</db:select>
+	</sub-flow>
+	<flow name="demo-mule-policies-circuit-breaker-http" doc:id="3fc1b962-7e45-4d01-aa7e-d5b8ddf10f40" >
+		<http:listener doc:name="Listener" doc:id="7a07e317-b5c2-45b0-84b8-fab95adc95d3" config-ref="HTTP_Listener_config" path="/circuit-breaker"/>
+		<flow-ref doc:name="demo-mule-policies-request-flight-service" doc:id="0f26acb4-31f4-4edc-9000-5d6df6540a91" name="demo-mule-policies-request-flight-service"/>
+	</flow>
+	<flow name="demo-mule-policies-db-http" doc:id="77a63806-c3ec-47bc-bad2-8d7e401acded" >
+		<http:listener doc:name="Listener" doc:id="537f8797-f0b1-4f95-bf28-771709ff3ae8" config-ref="HTTP_Listener_config" path="/caching"/>
+		<flow-ref doc:name="demo-mule-policies-db" doc:id="68629b2c-a2da-4e81-b19e-ef38808a459f" name="demo-mule-policies-db"/>
+		<ee:transform doc:name="Transform Message" doc:id="56d189ac-cc5d-461c-9f57-b7ba5a3f4dd0" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+	<flow name="demo-mule-policies-throttling-http" doc:id="c4d0f062-cd3b-4a09-bc40-3bc5ce3ae73b" >
+		<http:listener doc:name="Listener" doc:id="946a5b2e-28b2-4159-9f67-05e3726e2f24" config-ref="HTTP_Listener_config" path="/throttling" />
+		<flow-ref doc:name="demo-mule-policies-db" doc:id="d04b1bb1-3d5d-4702-9373-a0fb599bb6bc" name="demo-mule-policies-db" />
+		<ee:transform doc:name="Transform Message" doc:id="28d76029-3da1-441b-aadf-88ed813e1514" >
+			<ee:message >
+				<ee:set-payload ><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+	</flow>
+</mule>
